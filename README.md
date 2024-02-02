@@ -1,4 +1,4 @@
-# scorems
+# flyappswin
 
 基于Python的图形化tkinte的fly分发平台批量上传flyappswin
 
