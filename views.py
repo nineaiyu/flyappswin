@@ -264,6 +264,7 @@ class UploadFrame(Frame):
                 pass
         if self.pools:
             self.pools.shutdown(wait=False)
+        self.uploading = 0
         self.format_data()
 
     def loop(self, force=False):
@@ -358,8 +359,9 @@ class UploadFrame(Frame):
             # row : ['熟客麻将', 'C:\\Users\\ly_13\\Downloads\\熟客麻将-1.0.4-achz.apk', '可上传']
             if len(row) != 7:
                 continue
-            if row[2].startswith('上传成功') or not row[2].startswith('可上传'):
+            if row[2].startswith('上传成功') or row[2] not in ['取消成功', '可上传']:
                 continue
+            row[-1] = False
             filepath = row[1]
             name, token = self.get_config_name(os.path.basename(filepath))
             if not name:
@@ -367,10 +369,6 @@ class UploadFrame(Frame):
             self.loop(True)
             self.result[row[0]][-2] = self.pools.submit(self.upload_task, filepath, token, row)
             print(name, filepath, token)
-        # except Exception as e:
-        #     print(f"upload exception {e}")
-        #     self.pools.shutdown(False)
-        # pools.shutdown(wait=True)
 
     def progress_callback(self, fly_obj, offset, total_size):
         def progress_callback(upload_size, now_part_size):
@@ -380,7 +378,6 @@ class UploadFrame(Frame):
             self.result[fly_obj.values[0]][2] = f"{percent * 100:.3f}%"
             if fly_obj.values[-1]:
                 self.result[fly_obj.values[0]][2] = '取消成功'
-                self.uploading -= 1
             # self.format_data(self.result[fly_obj.values[1]])
 
         return progress_callback
