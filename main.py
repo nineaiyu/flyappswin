@@ -12,7 +12,7 @@ if __name__ == '__main__':
     win_h = root.winfo_screenheight()
 
     # 窗口长宽
-    width = 850
+    width = 1300
     height = 500
 
     # 设置窗口位置和长宽

@@ -69,7 +69,7 @@ def upload_aliyunoss(self, access_key_id, access_key_secret, security_token, end
         offset = 0
         while offset < total_size:
             num_to_upload = min(part_size, total_size - offset)
-            if len(self.values) == 5 and self.values[-1]:
+            if len(self.values) == 7 and self.values[-1]:
                 raise '停止上传'
             if self.progress_callback:
                 progress_callback = self.progress_callback(self, offset, total_size)
@@ -115,12 +115,10 @@ class FLYCliSer(object):
                 print("应用 %s  %s 上传更新成功" % (data.get('appname'), data.get('bundleid')))
                 print("当前应用下载连接：", master_download_url)
                 print("当前版本下载连接：", master_download_url + '?release_id=' + data.get('upload_key').split('.')[0])
-                return master_download_url
+                return req.json().get('data', {})
         raise AssertionError(req.text)
 
-    def upload_app(self, app_path, r_short, r_name, r_change_log):
-        appobj = AppInfo(app_path)
-        appinfo = appobj.get_app_data()
+    def upload_app(self, app_path, appobj, appinfo, r_short, r_name, r_change_log):
         print("获取应用信息", appinfo)
         icon_path = appobj.make_app_png(icon_path=appinfo.get("icon_path", None))
         print("获取图标信息", icon_path)
@@ -157,6 +155,7 @@ class FLYCliSer(object):
                              file_auth['security_token'],
                              file_auth['endpoint'], file_auth['bucket'], app_path, upcretsdata['upload_key'], headers)
 
+        self.values[2] = '应用数据入库中'
         app_data = {
             "filename": os.path.basename(app_path),
             "filesize": os.path.getsize(app_path),

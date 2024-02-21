@@ -12,10 +12,9 @@ from functools import wraps
 from tkinter import StringVar, Label, Entry, W, E, Button, messagebox, ttk, Tk, BROWSE
 from tkinter.ttk import Frame
 
-from loguru import logger
 from windnd import hook_dropfiles
 
-from cli import FLYCliSer
+from cli import FLYCliSer, AppInfo
 from models import config
 
 columns = {
@@ -49,7 +48,7 @@ class AddConfig(object):
     def __init__(self, name='', api='', is_edit=False):
         self.is_edit = is_edit
         self.root = Tk()
-        self.root.geometry('%dx%d' % (500, 130))
+        self.root.geometry('%dx%d' % (800, 130))
         self.name = StringVar(self.root, value=name)
         self.api = StringVar(self.root, value=api)
         self.show()
@@ -85,7 +84,7 @@ class AddConfig(object):
         for key, label in columns.items():
             print(key, label, getattr(self, key))
             Label(self.root, text=f'{label}: ').grid(row=index, stick=W, pady=10)
-            Entry(self.root, textvariable=getattr(self, key), width=60).grid(row=index, column=1, stick=E)
+            Entry(self.root, textvariable=getattr(self, key), width=120).grid(row=index, column=1, stick=E)
             index += 1
 
         Button(self.root, text='保存配置', command=self.click).grid(row=7, column=1, stick=E, pady=10)
@@ -137,9 +136,9 @@ class ListFrame(Frame):
         # self.tree.configure(yscrollcommand=self.ysb.set, xscrollcommand=xsb.set)  # y滚动条关联
         # self.ysb.pack(side="right", fill="y")
         for column, label in columns.items():
-            width = 600
+            width = 980
             if column == 'name':
-                width = 200
+                width = 300
             self.tree.column(column, width=width)
             self.tree.heading(column, text=label)
 
@@ -207,18 +206,22 @@ class UploadFrame(Frame):
         super().pack(*args, **kwargs)
 
         # 树状标签
-        columns = ("idx", "name", "file_path", "status")
+        columns = ("idx", "name", "file_path", "bundleid", "version", "status")
         self.tree = ttk.Treeview(self, show="headings", columns=columns, selectmode=BROWSE, padding=5)
         self.tree['height'] = 20
         self.tree.place(relx=0, rely=0, relwidth=1, relheight=1)
         self.tree.column("idx", anchor="w", width=50)  # 设置表格文字靠左
         self.tree.column("name", anchor="w", width=100)
-        self.tree.column("file_path", anchor="w", width=400)
-        self.tree.column("status", anchor="w", width=250)
+        self.tree.column("file_path", anchor="w", width=350)
+        self.tree.column("bundleid", anchor="w", width=250)
+        self.tree.column("version", anchor="w", width=100)
+        self.tree.column("status", anchor="w", width=430)
 
         self.tree.heading("idx", text="序号")  # 设置表格头部标题
         self.tree.heading("name", text="匹配配置名称")
         self.tree.heading("file_path", text="文件地址")
+        self.tree.heading("bundleid", text="包名")
+        self.tree.heading("version", text="版本")
         self.tree.heading("status", text="状态")
         self.tree.bind("<Double-Button-1>", self.open_url)
         global drop
@@ -249,7 +252,8 @@ class UploadFrame(Frame):
 
     def upload_cancel(self):
         for item in self.result.values():
-            print(item)
+            if item[2].startswith("上传成功"):
+                continue
             try:
                 item[-1] = True
                 if item[-2].cancel():
@@ -260,10 +264,11 @@ class UploadFrame(Frame):
                 pass
         if self.pools:
             self.pools.shutdown(wait=False)
-        # self.uploading = 0
         self.format_data()
 
     def loop(self, force=False):
+        if self.uploading and force:
+            return
         self.format_data()
         if self.uploading or force:
             self.tree.after(500, self.loop)
@@ -272,7 +277,7 @@ class UploadFrame(Frame):
         item = self.tree.focus()  # 获取当前选中项
         values = self.tree.item(item)['values']  # 获取该项的值列表
         urlx = values[3]
-        url = urlx.split('上传成功，下载地址：')[-1]
+        url = urlx.split('下载地址：')[-1]
         if url and url.startswith('http'):
             webbrowser.open(url)
 
@@ -282,30 +287,50 @@ class UploadFrame(Frame):
                 return name, token
         return None, None
 
+    def get_app_info(self, item):
+        file_path = item[1]
+        appobj = AppInfo(file_path)
+        item[3] = appobj
+        item[4] = appobj.get_app_data()
+        if item[2] == '解析中':
+            item[2] = '可上传'
+        self.format_data()
+
     def dragged_files(self, files):
         for file_path in files:
             file_path = file_path.decode('gbk')
             file_name = os.path.basename(file_path)
             # name = ".".join(os.path.basename(file_path).split('.')[:-1])
             name, token = self.get_config_name(file_name)
-            status = "可上传"
+            status = "解析中"
             if not token:
                 name = ""
                 status = "不可上传"
-
-            inster_value = [name, file_path, status, None, False]
+            # appobj = AppInfo(file_path)
+            # appinfo = appobj.get_app_data()
+            inster_value = [name, file_path, status, None, {}, None, False]
             self.result[name] = inster_value
             # files_show.insert('', index=self.count, values=inster_value)
         self.format_data()
+        self.pools = ThreadPoolExecutor(3)
+
+        for item in self.result.values():
+            self.pools.submit(self.get_app_info, item)
 
     # @throttle
     def format_data(self):
-        for item in self.tree.get_children():
-            self.tree.delete(item)
-        index = 1
-        for key, item in self.result.items():
-            self.tree.insert("", index, values=[index, *item[:-2]])
-            index += 1
+        try:
+            for item in self.tree.get_children():
+                self.tree.delete(item)
+            index = 1
+            for key, item in self.result.items():
+                app_info = item[-3]
+                self.tree.insert("", index, values=[index, *item[0:2], app_info.get('bundle_id'),
+                                                    f"{app_info.get('version')}  {app_info.get('versioncode')}",
+                                                    item[2]])
+                index += 1
+        except Exception as e:
+            pass
 
     def upload_task(self, filepath, token, row):
         if os.path.isfile(filepath) and filepath.split('.')[-1].lower() in ['ipa', 'apk']:
@@ -313,8 +338,12 @@ class UploadFrame(Frame):
             fly_obj = FLYCliSer("https://app.hehejoy.cn/", token, self.progress_callback, row)
             self.result[row[0]][2] = f"应用分析中..."
             # self.format_data()
-            download_url = fly_obj.upload_app(filepath, None, None, None)
-            self.result[row[0]][2] = f"上传成功，下载地址：{download_url}"
+            appobj = self.result[row[0]][3]
+            appinfo = self.result[row[0]][4]
+            result_info = fly_obj.upload_app(filepath, appobj, appinfo, None, None, None)
+            master_release = result_info.get('master_release', {})
+            self.result[row[0]][
+                2] = f"上传成功，版本：{master_release.get('app_version')}  {master_release.get('build_version')}，下载地址：{result_info.get('preview_url')}"
             # self.format_data()
             self.uploading -= 1
 
@@ -327,9 +356,9 @@ class UploadFrame(Frame):
             # for item in self.tree.get_children():
             #     values = self.tree.item(item)['values']  # 获取该项的值列表
             # row : ['熟客麻将', 'C:\\Users\\ly_13\\Downloads\\熟客麻将-1.0.4-achz.apk', '可上传']
-            if len(row) != 5:
+            if len(row) != 7:
                 continue
-            if row[2].startswith('上传成功'):
+            if row[2].startswith('上传成功') or not row[2].startswith('可上传'):
                 continue
             filepath = row[1]
             name, token = self.get_config_name(os.path.basename(filepath))
@@ -337,8 +366,6 @@ class UploadFrame(Frame):
                 continue
             self.loop(True)
             self.result[row[0]][-2] = self.pools.submit(self.upload_task, filepath, token, row)
-            logger.info(f"sfsafdsadfsadf")
-            logger.warning(f"{self.pools._threads}")
             print(name, filepath, token)
         # except Exception as e:
         #     print(f"upload exception {e}")
@@ -350,7 +377,7 @@ class UploadFrame(Frame):
             percent = (offset + upload_size) / total_size  # 接收的比例
             # print(fly_obj.values)
             # print(11, self.result[fly_obj.values[1]], fly_obj.values)
-            self.result[fly_obj.values[0]][2] = f"{percent * 100}%"
+            self.result[fly_obj.values[0]][2] = f"{percent * 100:.3f}%"
             if fly_obj.values[-1]:
                 self.result[fly_obj.values[0]][2] = '取消成功'
                 self.uploading -= 1
