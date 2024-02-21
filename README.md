@@ -6,7 +6,7 @@
 
 ```shell
 pip install pyinstaller
- pyinstaller -F -w main.py  --add-data="static:static"
+pyinstaller -F -w main.py -n '应用批量上传v3' --add-data="static:static"
 ```
 ### 带有命令框的，用与调试
 ```shell

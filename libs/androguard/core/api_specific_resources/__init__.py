@@ -38,7 +38,7 @@ def load_permissions(apilevel, permtype='permissions'):
     apilevel = int(apilevel)
 
     root = os.path.dirname(os.path.realpath(__file__))
-    root = get_resource_path('static')
+    root = get_resource_path('static', root)
     permissions_file = os.path.join(root, "aosp_permissions", "permissions_{}.json".format(apilevel))
 
     levels = filter(lambda x: re.match(r'^permissions_\d+\.json$', x), os.listdir(os.path.join(root, "aosp_permissions")))
@@ -76,7 +76,7 @@ def load_permission_mappings(apilevel):
     :return: a dictionary of {MethodSignature: [List of Permissions]}
     """
     root = os.path.dirname(os.path.realpath(__file__))
-    root = get_resource_path('static')
+    root = get_resource_path('static', root)
     permissions_file = os.path.join(root, "api_permission_mappings", "permissions_{}.json".format(apilevel))
 
     if not os.path.isfile(permissions_file):

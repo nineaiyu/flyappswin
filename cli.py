@@ -69,7 +69,8 @@ def upload_aliyunoss(self, access_key_id, access_key_secret, security_token, end
         offset = 0
         while offset < total_size:
             num_to_upload = min(part_size, total_size - offset)
-
+            if len(self.values) == 5 and self.values[-1]:
+                raise '停止上传'
             if self.progress_callback:
                 progress_callback = self.progress_callback(self, offset, total_size)
             else:
@@ -150,6 +151,7 @@ class FLYCliSer(object):
 
             upload_aliyunoss(self, png_auth['access_key_id'], png_auth['access_key_secret'], png_auth['security_token'],
                              png_auth['endpoint'], png_auth['bucket'], icon_path, upcretsdata['png_key'])
+
             file_auth = upcretsdata['upload_token']
             upload_aliyunoss(self, file_auth['access_key_id'], file_auth['access_key_secret'],
                              file_auth['security_token'],

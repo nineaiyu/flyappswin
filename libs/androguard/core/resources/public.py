@@ -8,8 +8,7 @@ _public_res = None
 if _public_res is None:
     _public_res = {}
     root = os.path.dirname(os.path.realpath(__file__))
-    xmlfile = os.path.join(root, "public.xml")
-    xmlfile = get_resource_path('static/public.xml')
+    xmlfile = get_resource_path('static/public.xml', os.path.join(root, "public.xml"))
     if os.path.isfile(xmlfile):
         with open(xmlfile, "r") as fp:
             _xml = minidom.parseString(fp.read())

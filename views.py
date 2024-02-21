@@ -12,6 +12,7 @@ from functools import wraps
 from tkinter import StringVar, Label, Entry, W, E, Button, messagebox, ttk, Tk, BROWSE
 from tkinter.ttk import Frame
 
+from loguru import logger
 from windnd import hook_dropfiles
 
 from cli import FLYCliSer
@@ -48,7 +49,7 @@ class AddConfig(object):
     def __init__(self, name='', api='', is_edit=False):
         self.is_edit = is_edit
         self.root = Tk()
-        self.root.geometry('%dx%d' % (450, 130))
+        self.root.geometry('%dx%d' % (500, 130))
         self.name = StringVar(self.root, value=name)
         self.api = StringVar(self.root, value=api)
         self.show()
@@ -179,12 +180,14 @@ class ListFrame(Frame):
 class UploadFrame(Frame):
     def __init__(self, master=None):
         super().__init__(master)
+        self.button_cancel = None
         self.tree = None
         self.button = None
         self.button_delete = None
         self.button_clean = None
         self.count = 0
         self.uploading = 0
+        self.pools = None
         self.result = {}
 
     def pack_forget(self) -> None:
@@ -197,6 +200,8 @@ class UploadFrame(Frame):
             self.button_delete.destroy()
         if self.button_clean:
             self.button_clean.destroy()
+        if self.button_cancel:
+            self.button_cancel.destroy()
 
     def pack(self, *args, **kwargs):
         super().pack(*args, **kwargs)
@@ -225,20 +230,50 @@ class UploadFrame(Frame):
         self.tree.pack()
         self.button = Button(text="批量上传", command=self.upload, padx=5, pady=5)
         self.button.pack()
+        self.button_cancel = Button(text="取消上传", command=self.upload_cancel, padx=5, pady=5)
+        self.button_cancel.pack()
+
         self.button_delete = Button(text="选中删除", command=self.delete_node, padx=5, pady=5)
         self.button_delete.pack()
         self.button_clean = Button(text="清空", command=self.clean, padx=5, pady=5)
         self.button_clean.pack()
         self.button.place(relx=0.6, rely=0.9)
+        self.button_cancel.place(relx=0.7, rely=0.9)
         self.button_clean.place(relx=0.5, rely=0.9)
         self.button_delete.place(relx=0.4, rely=0.9)
+        self.master.protocol('WM_DELETE_WINDOW', self.destroy_func)
+
+    def destroy_func(self):
+        self.upload_cancel()
+        self.master.destroy()
+
+    def upload_cancel(self):
+        for item in self.result.values():
+            print(item)
+            try:
+                item[-1] = True
+                if item[-2].cancel():
+                    self.result[item[0]][2] = '取消成功'
+                else:
+                    self.result[item[0]][2] = '取消成功'
+            except:
+                pass
+        if self.pools:
+            self.pools.shutdown(wait=False)
+        # self.uploading = 0
+        self.format_data()
+
+    def loop(self, force=False):
+        self.format_data()
+        if self.uploading or force:
+            self.tree.after(500, self.loop)
 
     def open_url(self, *args, **kwargs):
         item = self.tree.focus()  # 获取当前选中项
         values = self.tree.item(item)['values']  # 获取该项的值列表
         urlx = values[3]
         url = urlx.split('上传成功，下载地址：')[-1]
-        if url:
+        if url and url.startswith('http'):
             webbrowser.open(url)
 
     def get_config_name(self, file_name: str):
@@ -258,46 +293,56 @@ class UploadFrame(Frame):
                 name = ""
                 status = "不可上传"
 
-            inster_value = [name, file_path, status]
+            inster_value = [name, file_path, status, None, False]
             self.result[name] = inster_value
             # files_show.insert('', index=self.count, values=inster_value)
-            self.format_data()
+        self.format_data()
 
-    @throttle
+    # @throttle
     def format_data(self):
         for item in self.tree.get_children():
             self.tree.delete(item)
         index = 1
         for key, item in self.result.items():
-            self.tree.insert("", index, values=[index, *item])
+            self.tree.insert("", index, values=[index, *item[:-2]])
             index += 1
 
-    def upload_task(self, filepath, token, values):
+    def upload_task(self, filepath, token, row):
         if os.path.isfile(filepath) and filepath.split('.')[-1].lower() in ['ipa', 'apk']:
             self.uploading += 1
-            fly_obj = FLYCliSer("https://app.hehejoy.cn/", token, self.progress_callback, values)
-            self.result[fly_obj.values[1]][2] = f"应用分析中..."
-            self.format_data()
+            fly_obj = FLYCliSer("https://app.hehejoy.cn/", token, self.progress_callback, row)
+            self.result[row[0]][2] = f"应用分析中..."
+            # self.format_data()
             download_url = fly_obj.upload_app(filepath, None, None, None)
-            self.result[fly_obj.values[1]][2] = f"上传成功，下载地址：{download_url}"
-            self.format_data()
+            self.result[row[0]][2] = f"上传成功，下载地址：{download_url}"
+            # self.format_data()
             self.uploading -= 1
 
     def upload(self):
         if self.uploading != 0:
             return
-        pools = ThreadPoolExecutor(1)
-        for item in self.tree.get_children():
-            values = self.tree.item(item)['values']  # 获取该项的值列表
-            filepath = values[2]
+        self.pools = ThreadPoolExecutor(3)
+        # try:
+        for row in self.tree.master.result.values():
+            # for item in self.tree.get_children():
+            #     values = self.tree.item(item)['values']  # 获取该项的值列表
+            # row : ['熟客麻将', 'C:\\Users\\ly_13\\Downloads\\熟客麻将-1.0.4-achz.apk', '可上传']
+            if len(row) != 5:
+                continue
+            if row[2].startswith('上传成功'):
+                continue
+            filepath = row[1]
             name, token = self.get_config_name(os.path.basename(filepath))
             if not name:
                 continue
-            pools.submit(self.upload_task, filepath, token, values)
-            # if os.path.isfile(filepath) and filepath.split('.')[-1].lower() in ['ipa', 'apk']:
-            #     fly_obj = FLYCliSer("https://app.hehejoy.cn/", token, self.progress_callback, values)
-            #     fly_obj.upload_app(filepath, None, None, None)
+            self.loop(True)
+            self.result[row[0]][-2] = self.pools.submit(self.upload_task, filepath, token, row)
+            logger.info(f"sfsafdsadfsadf")
+            logger.warning(f"{self.pools._threads}")
             print(name, filepath, token)
+        # except Exception as e:
+        #     print(f"upload exception {e}")
+        #     self.pools.shutdown(False)
         # pools.shutdown(wait=True)
 
     def progress_callback(self, fly_obj, offset, total_size):
@@ -305,8 +350,11 @@ class UploadFrame(Frame):
             percent = (offset + upload_size) / total_size  # 接收的比例
             # print(fly_obj.values)
             # print(11, self.result[fly_obj.values[1]], fly_obj.values)
-            self.result[fly_obj.values[1]][2] = f"{percent * 100}%"
-            self.format_data()
+            self.result[fly_obj.values[0]][2] = f"{percent * 100}%"
+            if fly_obj.values[-1]:
+                self.result[fly_obj.values[0]][2] = '取消成功'
+                self.uploading -= 1
+            # self.format_data(self.result[fly_obj.values[1]])
 
         return progress_callback
 
